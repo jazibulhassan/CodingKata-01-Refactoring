@@ -13,200 +13,195 @@ import java.util.Map;
  * change. If tests stay green, your refactoring is safe.
  *
  * Smells to hunt:
- *   1. God class        - one class does cart storage, pricing, discounts,
- *                         shipping, tax, and receipt formatting. Extract.
- *   2. Bad names        - fields a/b/c/d, methods calc/doIt/ship, vars tmp/x/flag2.
- *                         Rename.
- *   3. Duplicated code  - the "loop over items" pattern is copy-pasted in
- *                         calc(), doIt(), ship(), format(). Consolidate.
- *   4. Deep nesting     - doIt() and ship() have 4+ level if/else pyramids.
- *                         Use guard clauses, polymorphism, or lookup maps.
+ *   1. God class       - one class does cart storage, pricing, discounts,
+ *                        shipping, tax, and receipt formatting. Extract.
+ *   2. Duplicated code - the "loop over items" pattern is copy-pasted in
+ *                        subtotal(), discountedSubtotal(), shippingCost(),
+ *                        receipt(). Consolidate it.
+ *   3. Deep nesting    - discountedSubtotal() and shippingCost() have 4+ level
+ *                        if/else pyramids. Use guard clauses, polymorphism,
+ *                        or lookup maps.
  *
  * Suggested path (one small step at a time, tests green after each):
- *   a) Rename private fields and locals to meaningful names.
- *   b) Extract an Item class (replace Map<String,Object>).
- *   c) Rename public methods: calc->subtotal, doIt->discountedSubtotal,
- *      ship->shippingCost, tax->taxAmount, format->receipt.
- *      (Hint: add new methods that delegate, then swap call sites, then remove old.)
- *   d) Extract DiscountPolicy, ShippingCalculator, TaxCalculator, ReceiptPrinter.
- *   e) Flatten nested ifs with guard clauses and lookup tables.
- *
- * NOTE: The tests call ShoppingThing's public API only, so any renames of
- * public methods must be done via a deprecation-friendly shim OR by updating
- * the tests in the SAME commit as the rename (the second is fine for a kata).
+ *   a) Extract an Item class to replace Map<String, Object>.
+ *   b) Extract DiscountPolicy - move coupon, member, and bulk discount logic.
+ *   c) Extract ShippingCalculator - move weight + zone + express logic.
+ *   d) Extract TaxCalculator - move the country-to-rate mapping.
+ *   e) Extract ReceiptPrinter - move the formatting logic.
+ *   f) Flatten nested ifs with guard clauses and lookup tables.
  */
 public class ShoppingThing {
 
-    private List<Map<String, Object>> a = new ArrayList<>();
-    private String b;
-    private String c;
-    private String d;
-    private boolean flag2 = false;
+    private List<Map<String, Object>> items = new ArrayList<>();
+    private String couponCode;
+    private String country;
+    private String memberTier;
+    private boolean expressShipping = false;
 
-    public void addItem(String name, double price, int qty, double weight, String category) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("n", name);
-        m.put("p", price);
-        m.put("q", qty);
-        m.put("w", weight);
-        m.put("c", category);
-        a.add(m);
+    public void addItem(String name, double price, int quantity, double weight, String category) {
+        Map<String, Object> itemData = new HashMap<>();
+        itemData.put("name", name);
+        itemData.put("price", price);
+        itemData.put("quantity", quantity);
+        itemData.put("weight", weight);
+        itemData.put("category", category);
+        items.add(itemData);
     }
 
-    public void setCoupon(String code) { this.b = code; }
-    public void setCountry(String country) { this.c = country; }
-    public void setMember(String tier) { this.d = tier; }
-    public void setExpress(boolean express) { this.flag2 = express; }
+    public void setCoupon(String code) { this.couponCode = code; }
+    public void setCountry(String country) { this.country = country; }
+    public void setMember(String tier) { this.memberTier = tier; }
+    public void setExpress(boolean express) { this.expressShipping = express; }
 
-    public double calc() {
-        double tmp = 0;
-        for (int i = 0; i < a.size(); i++) {
-            Map<String, Object> it = a.get(i);
-            double p = (double) it.get("p");
-            int q = (int) it.get("q");
-            tmp += p * q;
+    public double subtotal() {
+        double subtotal = 0;
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            double price = (double) item.get("price");
+            int quantity = (int) item.get("quantity");
+            subtotal += price * quantity;
         }
-        return tmp;
+        return subtotal;
     }
 
-    public double doIt() {
-        double tmp = calc();
-        double x = 0;
+    public double discountedSubtotal() {
+        double subtotal = subtotal();
+        double discount = 0;
 
-        if (b != null) {
-            if (b.equals("SAVE10")) {
-                if (tmp > 50) {
-                    x += tmp * 0.1;
+        if (couponCode != null) {
+            if (couponCode.equals("SAVE10")) {
+                if (subtotal > 50) {
+                    discount += subtotal * 0.1;
                 } else {
-                    if (tmp > 20) {
-                        x += 2;
+                    if (subtotal > 20) {
+                        discount += 2;
                     }
                 }
             } else {
-                if (b.equals("SAVE20")) {
-                    if (tmp > 100) {
-                        x += tmp * 0.2;
+                if (couponCode.equals("SAVE20")) {
+                    if (subtotal > 100) {
+                        discount += subtotal * 0.2;
                     } else {
-                        if (tmp > 50) {
-                            x += tmp * 0.1;
+                        if (subtotal > 50) {
+                            discount += subtotal * 0.1;
                         }
                     }
                 }
             }
         }
 
-        if (d != null) {
-            if (d.equals("G")) {
-                x += tmp * 0.15;
+        if (memberTier != null) {
+            if (memberTier.equals("G")) {
+                discount += subtotal * 0.15;
             } else {
-                if (d.equals("S")) {
-                    x += tmp * 0.05;
+                if (memberTier.equals("S")) {
+                    discount += subtotal * 0.05;
                 }
             }
         }
 
-        for (int i = 0; i < a.size(); i++) {
-            Map<String, Object> it = a.get(i);
-            int q = (int) it.get("q");
-            double p = (double) it.get("p");
-            if (q >= 10) {
-                if (p > 5) {
-                    x += p * q * 0.05;
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            int quantity = (int) item.get("quantity");
+            double price = (double) item.get("price");
+            if (quantity >= 10) {
+                if (price > 5) {
+                    discount += price * quantity * 0.05;
                 }
             }
         }
 
-        return tmp - x;
+        return subtotal - discount;
     }
 
-    public double ship() {
-        if (b != null && b.equals("FREESHIP")) return 0;
-        if (a.isEmpty()) return 0;
+    public double shippingCost() {
+        if (couponCode != null && couponCode.equals("FREESHIP")) return 0;
+        if (items.isEmpty()) return 0;
 
-        double w = 0;
-        for (int i = 0; i < a.size(); i++) {
-            Map<String, Object> it = a.get(i);
-            w += (double) it.get("w") * (int) it.get("q");
+        double totalWeight = 0;
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            totalWeight += (double) item.get("weight") * (int) item.get("quantity");
         }
 
-        double s = 0;
-        if (c != null) {
-            if (c.equals("US")) {
-                if (w <= 1) {
-                    s = 5;
+        double cost = 0;
+        if (country != null) {
+            if (country.equals("US")) {
+                if (totalWeight <= 1) {
+                    cost = 5;
                 } else {
-                    if (w <= 5) {
-                        s = 10;
+                    if (totalWeight <= 5) {
+                        cost = 10;
                     } else {
-                        s = 10 + (w - 5) * 2;
+                        cost = 10 + (totalWeight - 5) * 2;
                     }
                 }
             } else {
-                if (c.equals("CA")) {
-                    if (w <= 1) {
-                        s = 8;
+                if (country.equals("CA")) {
+                    if (totalWeight <= 1) {
+                        cost = 8;
                     } else {
-                        if (w <= 5) {
-                            s = 15;
+                        if (totalWeight <= 5) {
+                            cost = 15;
                         } else {
-                            s = 15 + (w - 5) * 3;
+                            cost = 15 + (totalWeight - 5) * 3;
                         }
                     }
                 } else {
-                    if (w <= 1) {
-                        s = 20;
+                    if (totalWeight <= 1) {
+                        cost = 20;
                     } else {
-                        if (w <= 5) {
-                            s = 35;
+                        if (totalWeight <= 5) {
+                            cost = 35;
                         } else {
-                            s = 35 + (w - 5) * 5;
+                            cost = 35 + (totalWeight - 5) * 5;
                         }
                     }
                 }
             }
         }
 
-        if (flag2) s = s * 1.5;
-        return s;
+        if (expressShipping) cost = cost * 1.5;
+        return cost;
     }
 
     public double tax() {
-        double sub = doIt();
-        double r = 0;
-        if (c != null) {
-            if (c.equals("US")) {
-                r = 0.07;
+        double discountedSubtotal = discountedSubtotal();
+        double taxRate = 0;
+        if (country != null) {
+            if (country.equals("US")) {
+                taxRate = 0.07;
             } else {
-                if (c.equals("CA")) {
-                    r = 0.13;
+                if (country.equals("CA")) {
+                    taxRate = 0.13;
                 } else {
-                    r = 0.20;
+                    taxRate = 0.20;
                 }
             }
         }
-        return sub * r;
+        return discountedSubtotal * taxRate;
     }
 
     public double total() {
-        return doIt() + ship() + tax();
+        return discountedSubtotal() + shippingCost() + tax();
     }
 
-    public String format() {
+    public String receipt() {
         StringBuilder sb = new StringBuilder();
         sb.append("Receipt\n");
-        for (int i = 0; i < a.size(); i++) {
-            Map<String, Object> it = a.get(i);
-            double p = (double) it.get("p");
-            int q = (int) it.get("q");
-            sb.append(it.get("n"))
-              .append(" x").append(q)
-              .append(" @ $").append(String.format("%.2f", p))
-              .append(" = $").append(String.format("%.2f", p * q))
+        for (int i = 0; i < items.size(); i++) {
+            Map<String, Object> item = items.get(i);
+            double price = (double) item.get("price");
+            int quantity = (int) item.get("quantity");
+            sb.append(item.get("name"))
+              .append(" x").append(quantity)
+              .append(" @ $").append(String.format("%.2f", price))
+              .append(" = $").append(String.format("%.2f", price * quantity))
               .append("\n");
         }
-        sb.append("Subtotal: $").append(String.format("%.2f", calc())).append("\n");
-        sb.append("Discounted: $").append(String.format("%.2f", doIt())).append("\n");
-        sb.append("Shipping: $").append(String.format("%.2f", ship())).append("\n");
+        sb.append("Subtotal: $").append(String.format("%.2f", subtotal())).append("\n");
+        sb.append("Discounted: $").append(String.format("%.2f", discountedSubtotal())).append("\n");
+        sb.append("Shipping: $").append(String.format("%.2f", shippingCost())).append("\n");
         sb.append("Tax: $").append(String.format("%.2f", tax())).append("\n");
         sb.append("Total: $").append(String.format("%.2f", total())).append("\n");
         return sb.toString();
